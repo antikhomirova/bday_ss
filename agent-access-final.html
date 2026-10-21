@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agent Access</title>
+<style>
+:root{
+  --bg:#0b0f0d; --panel:#131a17; --line:#24302a; --text:#d9e6df; --muted:#8a9a92;
+  --accent:#00ff88; --warn:#ffcc00; --err:#ff5d5d; --cell:#e9efe9;
+  --blocked:#070a08; --ink:#0b0f0d;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#0b0f0d; } }
+:root[data-theme="dark"]{ --bg:#0b0f0d; }
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);
+  font-family:"Courier New",ui-monospace,Menlo,Consolas,monospace;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:48px 48px;background-position:-1px -1px}
+body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse at center,transparent 20%,var(--bg) 85%);pointer-events:none}
+main{position:relative;z-index:1;display:flex;justify-content:center;align-items:flex-start;padding:24px 14px 40px;min-height:100vh}
+.hidden{display:none!important}
+.card{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--accent);padding:28px;width:100%}
+#gate{max-width:380px;margin-top:18vh;text-align:center}
+h1{margin:0 0 20px;font-size:1.5rem;letter-spacing:.12em;color:var(--accent);font-weight:700}
+input[type=text].code{width:100%;padding:12px;background:#0b0f0d;border:1px solid var(--line);color:var(--text);font:inherit;font-size:1rem;outline:none}
+input.code:focus{border-color:var(--accent)}
+button{font:inherit;cursor:pointer;background:var(--accent);color:var(--ink);border:0;padding:11px 22px;font-weight:700;letter-spacing:.06em}
+button:hover:not(:disabled){background:#33ffa3}
+button:focus-visible,input:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
+button:disabled{background:#2a3430;color:var(--muted);cursor:not-allowed}
+#gate button{margin-top:14px;width:100%}
+.error{color:var(--err);font-size:.85rem;min-height:1.2em;margin:10px 0 0}
+#puzzle{max-width:1000px}
+.msg{margin:0 0 22px;line-height:1.55;color:var(--warn);font-size:1rem}
+.layout{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.gridwrap{overflow-x:auto;max-width:100%;padding-bottom:4px}
+#grid{display:grid;gap:2px;width:max-content}
+.cell{width:40px;height:40px;position:relative}
+.cell.block{background:var(--blocked)}
+.cell input{width:100%;height:100%;border:0;background:var(--cell);color:var(--ink);text-align:center;text-transform:uppercase;font:700 1.15rem "Courier New",monospace;padding:0;border-radius:0}
+.cell input:focus{background:#fff3b8;outline:2px solid var(--warn);outline-offset:-2px}
+.cell input:disabled{background:#98a39d}
+.cell .n{position:absolute;top:1px;left:3px;font-size:.6rem;color:#33403a;pointer-events:none;z-index:1}
+.clues{flex:1;min-width:280px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.clues h2{margin:0 0 8px;font-size:1rem;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:6px}
+.clues ul{list-style:none;margin:0;padding:0}
+.clues li{margin:0 0 9px;font-size:.88rem;line-height:1.4}
+.clues b{color:var(--warn)}
+.clues small{color:var(--muted)}
+.controls{margin-top:22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+#attempts{color:var(--muted)}
+#status{min-height:1.3em;margin:12px 0 0;font-size:.95rem}
+#status.bad{color:var(--err)} 
+#success{max-width:560px;text-align:center;margin-top:16vh;padding:48px 24px}
+#success h1{font-size:clamp(2.6rem,12vw,4.5rem);letter-spacing:.04em;margin:0 0 14px;text-transform:none}
+#success p{color:var(--text);margin:0}
+@media (max-width:640px){
+  .card{padding:18px}
+  .cell{width:28px;height:28px}
+  .cell input{font-size:.9rem}
+  .cell .n{font-size:.5rem;left:2px}
+  .clues{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<main>
+  <section id="gate" class="card">
+    <h1>Agent Access</h1>
+    <input class="code" id="code" type="text" placeholder="Enter code" autocomplete="off" autofocus aria-label="Access code">
+    <p class="error" id="gateErr" role="alert"></p>
+    <button id="submit" type="button">Submit</button>
+  </section>
+
+  <section id="puzzle" class="card hidden">
+    <p class="msg">Agent, to proceed to next step, you need to solve simple crossword. You have limited attempts. Upon successful completion, the next step will open tomorrow at 10pm. Good luck!</p>
+    <div class="layout">
+      <div class="gridwrap"><div id="grid" role="grid" aria-label="Crossword grid"></div></div>
+      <div class="clues">
+        <div><h2>Across</h2><ul id="across"></ul></div>
+        <div><h2>Down</h2><ul id="down"></ul></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button id="check" type="button">Check</button>
+      <span id="attempts">Attempts left: 3</span>
+    </div>
+    <p id="status" role="status"></p>
+  </section>
+
+  <section id="success" class="card hidden">
+    <h1>successful</h1>
+    <p>You may proceed tomorrow at 10pm.</p>
+  </section>
+</main>
+
+<script>
+const DATA = {
+  "rows": 13,
+  "cols": 12,
+  "puzzleGrid": [
+    ["#","#","#","#","#","#","#",null,"#","#","#","#"],
+    ["#","#",null,"#","#","#",null,null,"#","#","#","#"],
+    [null,null,null,"#","#",null,null,null,null,"#","#","#"],
+    ["#","#",null,"#","#",null,null,null,null,"#","#","#"],
+    ["#",null,null,null,null,null,null,null,null,null,null,null],
+    ["#","#",null,null,null,null,null,null,null,"#","#","#"],
+    ["#","#",null,null,null,null,null,null,null,"#","#","#"],
+    ["#","#",null,null,null,"#",null,null,null,"#","#","#"],
+    ["#","#",null,null,"#","#",null,null,null,"#","#","#"],
+    ["#","#",null,null,"#","#",null,null,null,"#","#","#"],
+    ["#","#","#",null,"#","#",null,null,"#","#","#","#"],
+    ["#","#","#",null,"#","#",null,null,"#","#","#","#"],
+    ["#","#","#","#","#","#","#",null,"#","#","#","#"]
+  ],
+  "solutionGrid": [
+    ["#","#","#","#","#","#","#","F","#","#","#","#"],
+    ["#","#","S","#","#","#","R","O","#","#","#","#"],
+    ["Y","O","U","#","#","P","U","U","A","#","#","#"],
+    ["#","#","P","#","#","H","N","R","U","#","#","#"],
+    ["#","J","E","S","K","O","A","T","T","A","C","K"],
+    ["#","#","R","H","I","N","N","E","I","#","#","#"],
+    ["#","#","G","A","N","K","D","E","S","#","#","#"],
+    ["#","#","I","W","D","#","D","N","T","#","#","#"],
+    ["#","#","R","A","#","#","R","P","I","#","#","#"],
+    ["#","#","L","R","#","#","I","E","C","#","#","#"],
+    ["#","#","#","M","#","#","N","A","#","#","#","#"],
+    ["#","#","#","A","#","#","K","K","#","#","#","#"],
+    ["#","#","#","#","#","#","#","S","#","#","#","#"]
+  ],
+  "entries": [
+    { "number": 1, "answer": "FOURTEENPEAKS", "clue": "Your favourite movie (14 Peaks)", "row": 0, "col": 7, "direction": "down" },
+    { "number": 2, "answer": "SUPERGIRL", "clue": "First movie we went to watch together", "row": 1, "col": 2, "direction": "down" },
+    { "number": 3, "answer": "RUNANDDRINK", "clue": "What we did on 9th June", "row": 1, "col": 6, "direction": "down" },
+    { "number": 4, "answer": "YOU", "clue": "Best pet animal", "row": 2, "col": 0, "direction": "across" },
+    { "number": 5, "answer": "PHONK", "clue": "Best music for the gym (Brazilian/Russian etc.)", "row": 2, "col": 5, "direction": "down" },
+    { "number": 6, "answer": "AUTISTIC", "clue": "First word in your Instagram nickname", "row": 2, "col": 8, "direction": "down" },
+    { "number": 7, "answer": "JESKOATTACK", "clue": "Your favourite car", "row": 4, "col": 1, "direction": "across" },
+    { "number": 8, "answer": "SHAWARMA", "clue": "How I call you", "row": 4, "col": 3, "direction": "down" },
+    { "number": 9, "answer": "KIND", "clue": "What I say to people first when I talk about you", "row": 4, "col": 4, "direction": "down" }
+  ]
+};
+
+const $ = id => document.getElementById(id);
+let attempts = 3, locked = false;
+
+/* ---- Code gate ---- */
+function trySubmit(){
+  const v = $('code').value.trim().toLowerCase();
+  if (v === '47'){
+    $('gate').classList.add('hidden');
+    $('puzzle').classList.remove('hidden');
+    const first = document.querySelector('#grid input'); if (first) first.focus();
+  } else {
+    $('gateErr').textContent = 'Incorrect code. Try again.';
+    $('code').focus(); $('code').select();
+  }
+}
+$('submit').addEventListener('click', trySubmit);
+$('code').addEventListener('keydown', e => { if (e.key === 'Enter') trySubmit(); });
+
+/* ---- Crossword ---- */
+const inputs = []; // ordered list of {el,r,c}
+const byPos = {};
+(function build(){
+  const grid = $('grid');
+  grid.style.gridTemplateColumns = `repeat(${DATA.cols}, auto)`;
+  const nums = {};
+  DATA.entries.forEach(e => nums[e.row + ',' + e.col] = e.number);
+  DATA.puzzleGrid.forEach((row, r) => row.forEach((v, c) => {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    if (v === '#') { cell.classList.add('block'); }
+    else {
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.maxLength = 1; inp.autocomplete = 'off';
+      inp.setAttribute('autocapitalize', 'characters');
+      inp.setAttribute('aria-label', `Row ${r+1}, column ${c+1}`);
+      inp.dataset.r = r; inp.dataset.c = c;
+      cell.appendChild(inp);
+      byPos[r + ',' + c] = inp; inputs.push(inp);
+      if (nums[r + ',' + c]) { const n = document.createElement('span'); n.className = 'n'; n.textContent = nums[r + ',' + c]; cell.appendChild(n); }
+    }
+    grid.appendChild(cell);
+  }));
+
+  DATA.entries.forEach(e => {
+    const li = document.createElement('li');
+    li.innerHTML = `<b></b> <small></small><br><span></span>`;
+    li.querySelector('b').textContent = e.number + '.';
+    li.querySelector('small').textContent = e.direction === 'across' ? 'Across' : 'Down';
+    li.querySelector('span').textContent = e.clue;
+    $(e.direction === 'across' ? 'across' : 'down').appendChild(li);
+  });
+})();
+
+function move(inp, dr, dc){
+  let r = +inp.dataset.r + dr, c = +inp.dataset.c + dc;
+  while (r >= 0 && c >= 0 && r < DATA.rows && c < DATA.cols){
+    const t = byPos[r + ',' + c];
+    if (t){ t.focus(); t.select(); return; }
+    r += dr; c += dc;
+  }
+}
+inputs.forEach(inp => {
+  inp.addEventListener('input', () => {
+    inp.value = inp.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 1);
+    if (inp.value){
+      // continue in the direction of travel; prefer down if no right neighbour
+      const r = +inp.dataset.r, c = +inp.dataset.c;
+      if (byPos[r + ',' + (c+1)]) move(inp, 0, 1);
+      else if (byPos[(r+1) + ',' + c]) move(inp, 1, 0);
+      else move(inp, 0, 1);
+    }
+  });
+  inp.addEventListener('focus', () => inp.select());
+  inp.addEventListener('keydown', e => {
+    const k = e.key;
+    if (k === 'ArrowRight'){ e.preventDefault(); move(inp, 0, 1); }
+    else if (k === 'ArrowLeft'){ e.preventDefault(); move(inp, 0, -1); }
+    else if (k === 'ArrowDown'){ e.preventDefault(); move(inp, 1, 0); }
+    else if (k === 'ArrowUp'){ e.preventDefault(); move(inp, -1, 0); }
+    else if (k === 'Backspace' && !inp.value){ e.preventDefault(); move(inp, 0, -1); }
+    else if (k === 'Enter'){ e.preventDefault(); check(); }
+  });
+});
+
+function check(){
+  if (locked) return;
+  let ok = true;
+  inputs.forEach(inp => {
+    const want = DATA.solutionGrid[+inp.dataset.r][+inp.dataset.c];
+    if (inp.value.trim().toUpperCase() !== want) ok = false;
+  });
+  if (ok){
+    locked = true;
+    $('puzzle').classList.add('hidden');
+    $('success').classList.remove('hidden');
+    return;
+  }
+  attempts--;
+  $('attempts').textContent = 'Attempts left: ' + attempts;
+  const s = $('status'); s.className = 'bad';
+  if (attempts <= 0){
+    locked = true;
+    inputs.forEach(i => i.disabled = true);
+    $('check').disabled = true;
+    s.textContent = 'Out of attempts. Try again tomorrow.';
+  } else {
+    s.textContent = 'Incorrect. Attempts left: ' + attempts;
+  }
+}
+$('check').addEventListener('click', check);
+</script>
+</body>
+</html>
